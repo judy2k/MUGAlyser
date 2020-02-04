@@ -15,10 +15,10 @@ import pprint
 # from mugalyser.version import __programName__
 # from mugalyser.logger import Logger
 
-class MeetupRequest( object ):
+class MeetupRequest:
     
-    def __init__(self, logging_level = logging.INFO ):
-        
+    def __init__(self, auth_provider=None, logging_level = logging.INFO ):
+        self._auth_provider = auth_provider
         self._logger = logging.getLogger( __name__ )
         self._logger.setLevel( logging_level)
         fh = logging.FileHandler( "meetuprequests.log" )
@@ -31,18 +31,11 @@ class MeetupRequest( object ):
         self._logger.addHandler( sh )
         self._logger.addHandler( fh )
 
-    def request(self, req, params ):
-        
-        if params :
-            r = requests.get( req, params )
-        else:
-            r = requests.get( req )
-            
+    def request(self, req, params):
+        r = requests.get(req, params or None, auth=self._auth_provider or None)            
         r.raise_for_status()
         
-        '''
-        Rate limiting
-        '''
+        # Rate limiting
         remaining = int( r.headers[ "X-RateLimit-Remaining"] )
         resetDelay = int( r.headers[ "X-RateLimit-Reset"] )
         if remaining <= 1 and resetDelay > 0 :
@@ -53,7 +46,6 @@ class MeetupRequest( object ):
          
         return ( r.url, r.headers, r.json())
 
-    
     def simple_request(self, req, params=None ):
         
         for i in range( 2 ):
