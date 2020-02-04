@@ -18,7 +18,7 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
-    root = os.path.join( "..", "mugalyser")
+    root = os.path.dirname(__file__)
         
     apikey = args.apikey
     
