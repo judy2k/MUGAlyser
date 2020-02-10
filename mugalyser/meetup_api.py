@@ -15,31 +15,17 @@ from mugalyser.reshape import Reshape_Event, Reshape_Pro_Group, Reshape_Group, R
 
 
 def makeRequestURL(*args):
-    url = "https://api.meetup.com"
-
-    for i in args:
-        url = url + "/" + i
-
-    return url
+    return "/".join(["https://api.meetup.com/", *args])
 
 
 class MeetupAPI(object):
-    '''
-    classdocs
-    '''
-
-    def __init__(self, apikey, page=200, reshape=None):
-        '''
-        Constructor
-        '''
-
+    def __init__(self, auth_provider, page=200, reshape=None):
         self._logger = logging.getLogger(__programName__)
         self._api = "https://api.meetup.com/"
         self._params = {}
-        self._params["key"] = apikey
         self._params["page"] = page
         self._reshape = reshape
-        self._requester = MeetupRequest()
+        self._requester = MeetupRequest(auth_provider=auth_provider)
 
     def get_group(self, url_name):
 

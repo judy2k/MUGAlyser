@@ -21,17 +21,57 @@ import re
 
 import pymongo
 
-from mugalyser.apikey import get_meetup_key
-from mugalyser.meetup_api import MeetupAPI
-from mugalyser.audit import Audit
-from mugalyser.mongodb import MUGAlyserMongoDB
-from mugalyser.meetup_writer import MeetupWriter
-from mugalyser.version import __programName__, __version__
-from mugalyser.logger import Logger
+from configparser import ConfigParser
+from os.path import expanduser
 
+from .meetup_api import MeetupAPI
+from .audit import Audit
+from .mongodb import MUGAlyserMongoDB
+from .meetup_writer import MeetupWriter
+from .version import __programName__, __version__
+from .logger import Logger
+from .auth import ProOAuthProvider
+
+APP_NAME = "mugalyzer"
 DEBUG = 1
 TESTRUN = 0
 PROFILE = 0
+
+class Config:
+    config_paths = [
+        f"/etc/{APP_NAME}.ini",
+        expanduser(f"~/.{APP_NAME}.ini"),
+        "config.ini",
+    ]
+
+    def __init__(self, path=None):
+        self._config = config = ConfigParser()
+        if path is not None:
+            config_read = config.read([path])
+            if config_read == 0:
+                raise CLIError(f"Could not load config from: {path}")
+        else:
+            config.read(self.config_paths)
+
+    @property
+    def consumer_id(self):
+        return self._config.get("consumer", "id")  # consumer key
+
+    @property
+    def consumer_secret(self):
+        return self._config.get("consumer", "secret")  # consumer secret
+
+    @property
+    def consumer_redirect_uri(self):
+        return self._config.get("consumer", "redirecturi")
+
+    @property
+    def user_email(self):
+        return self._config.get("user", "email")
+
+    @property
+    def user_password(self):
+        return self._config.get("user", "password")
 
 
 class CLIError(Exception):
@@ -48,26 +88,20 @@ class CLIError(Exception):
         return self.msg
 
 
-def LoggingLevel(level="WARN"):
-    loglevel = None
-    if level == "DEBUG":
-        loglevel = logging.DEBUG
-    elif level == "INFO":
-        loglevel = logging.INFO
-    elif level == "WARNING":
-        loglevel = logging.WARNING
-    elif level == "ERROR":
-        loglevel = logging.ERROR
-    elif level == "CRITICAL":
-        loglevel = logging.CRITICAL
-
-    return loglevel
-
-
 def cleanUp(procs):
     for i in procs:
         i.terminate()
         i.join()
+
+
+def config_value(namespace, cli_arg_name, flag_name, env_name):
+    """
+    Provide a value from the CLI or environment.
+    
+    First attempts to get a value from the provided namespace.
+    If the value is None, it falls back to an environment variable.
+    If no value can be found, raise an error.
+    """
 
 
 def mugalyser(argv=None):  # IGNORE:C0111
@@ -80,8 +114,6 @@ def mugalyser(argv=None):  # IGNORE:C0111
 Read data from the Meetup API and write it do a MongoDB database. Each run of this program
 creates a new batch of data identified by a batchID. The default database is MUGS. You can change
 this by using the --host parameter and specifying a different database in the mongodb URI.
-If you use the --pro arguement your API key must be a meetup pro account API key. If not the api
-calls to the pro interface will fail.
 
 If you are and adminstrator on the pro account you should use the --admin flag to give you
 access to the admin APIs.
@@ -90,7 +122,7 @@ access to the admin APIs.
         # MongoDB Args
 
         parser.add_argument('--host', default="mongodb://localhost:27017/MUGS",
-                            help='URI to connect to : [default: %(default)s]')
+                            help='MongoDB URI to connect to : [default: %(default)s]')
         parser.add_argument("-v", "--version", action='version', version=__programName__ + " " + __version__)
         parser.add_argument('--mugs', nargs="+", default=[],
                             help='Process MUGs list list mugs by name [default: %(default)s]')
@@ -108,29 +140,47 @@ access to the admin APIs.
         parser.add_argument('--loglevel', default="INFO", choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
                             help='Logging level [default: %(default)s]')
 
-        parser.add_argument('--apikey', default=None, help='Default API key for meetup')
+        # parser.add_argument('--apikey', default=None, help='Default API key for meetup')
 
         parser.add_argument("--batchname", default=__programName__, help="Batch name used in creating audit batches")
         parser.add_argument('--urlfile',
                             help="File containing a list of MUG URLs to be used to parse data [ default: %(default)s]")
         parser.add_argument("--drop", default=False, action="store_true",
                             help="drop the database before writing data [default: %(default)s]")
-        parser.add_argument("--organizer_id", type=int, help="Organizer ID is required for non pro groups")
+        parser.add_argument(
+            "-c", "--config",
+            default=None,
+            metavar='PATH',
+            help="load config from %(metavar)s. [defaults: "+", ".join(Config.config_paths)+"]")
+
+        # parser.add_argument("--organizer_id", type=int, help="Organizer ID is required for non pro groups")
+        # OAuth Credentials
+        oauth_group = parser.add_argument_group('authentication')
+        oauth_group.add_argument("--consumerid", dest='consumer_id', help="Your application's consumer ID.")
+        oauth_group.add_argument("--consumersecret", dest='consumer_secret', help="Your application's consumer ID.")
+        oauth_group.add_argument("--redirecturi", dest='redirect_uri', help="Your application's redirect URL. (This isn't used, but it is required)")
+        oauth_group.add_argument("--useremail", dest='user_email', help="Your Meetup account's email address.")
+        oauth_group.add_argument("--userpassword", dest='user_password', help="Your Meetup account's password.")
+
         # Process arguments
         args = parser.parse_args(argv)
+        config = Config()
 
-        apikey = ""
-
-        if args.apikey:
-            apikey = args.apikey
-        else:
-            apikey = get_meetup_key()
+        consumer_id = args.consumer_id or os.getenv("MEETUP_CONSUMER_ID") or config.consumer_id
 
         mugalyser_logger = Logger(__programName__, args.loglevel)
         # mugalyser_logger.add_stream_handler( args.loglevel )
         mugalyser_logger.add_file_handler("mugalyser.log", args.loglevel)
 
-        api = MeetupAPI(apikey, reshape=True)
+        auth_provider = ProOAuthProvider(
+            consumer_id=args.consumerid,
+            consumer_secret=args.consumersecret,
+            consumer_redirect_uri=args.redirecturi,
+            user_email=args.useremail,
+            user_password=args.userpassword,
+        )
+
+        api = MeetupAPI(auth_provider=auth_provider, reshape=True)
         logger = mugalyser_logger.log()
 
         # Turn off logging for requests
@@ -200,7 +250,7 @@ access to the admin APIs.
         for i in args.mugs:
             group_dict[i] = None
 
-        writer = MeetupWriter(apikey, batchID, mdb, reshape=True)
+        writer = MeetupWriter(auth_provider, batchID, mdb, reshape=True)
 
         if "all" in args.phases:
             phases = ["groups", "members", "upcomingevents", "pastevents"]

@@ -58,11 +58,11 @@ class MeetupWriter(object):
 
         return doc
 
-    def __init__(self, apikey, batch_ID, mdb, reshape=True, unordered=True):
+    def __init__(self, auth_provider, batch_ID, mdb, reshape=True, unordered=True):
         """Write contents of meetup API to MongoDB"""
 
         self._mdb = mdb
-        self._meetup_api = MeetupAPI(apikey, reshape=reshape)
+        self._meetup_api = MeetupAPI(auth_provider, reshape=reshape)
         self._batch_ID = batch_ID
         self._groups = self._mdb.groupsCollection()
         self._members = self._mdb.membersCollection()
@@ -109,7 +109,7 @@ class MeetupWriter(object):
     def write(self, collection, retrievalGenerator, processFunc):
         """
 
-        :param collection: The collection to write too
+        :param collection: The collection to write to
         :param retrievalGenerator: a generator that produces docs
         :param processFunc: a preprocessing function for the docs to be written
         :return: The number of docs written
