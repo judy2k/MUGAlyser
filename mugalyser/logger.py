@@ -11,14 +11,12 @@ class Logger(object):
     '''
     Logging class that encapsulates logging interface
     '''
-
-
     format_string = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
     
     def __init__(self, logger_name, log_level = None):
         self._logger = logging.getLogger( logger_name )
-        self._log_level = Logger.LoggingLevel( log_level )
+        self._log_level = getattr(logging, log_level, None)
         if log_level :
             self._logger.setLevel( log_level )
         else:
@@ -53,20 +51,3 @@ class Logger(object):
     
     def log(self):
         return self._logger
-    
-    @staticmethod 
-    def LoggingLevel( level="WARN" ):
-
-        loglevel = None
-        if level == "DEBUG" :
-            loglevel = logging.DEBUG 
-        elif level == "INFO" :
-            loglevel = logging.INFO 
-        elif level == "WARNING" :
-            loglevel = logging.WARNING 
-        elif level == "ERROR" :
-            loglevel = logging.ERROR 
-        elif level == "CRITICAL" :
-            loglevel = logging.CRITICAL
-            
-        return loglevel 
